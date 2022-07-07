@@ -1,6 +1,10 @@
 # USB-Scale
 
-A very simple Gtk app for reading usb postage scales.
+A very simple Gtk app for reading usb postage scales, written in zig.
+
+
+![usb-scale-screenshot](https://user-images.githubusercontent.com/380158/177672133-48b5aca2-3d60-4569-abc9-d956099203c8.png)
+
 
 
 ### Usage
