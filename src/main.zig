@@ -1,7 +1,7 @@
 const std = @import("std");
 const zgt = @import("zgt");
 
-const libusb = @cImport({
+const c = @cImport({
     @cInclude("libusb-1.0/libusb.h");
 });
 
@@ -100,20 +100,20 @@ const UsbTransfer = struct {
         Complete,
         Cancelled,
     };
-    device: ?*libusb.libusb_device_handle,
-    transfer: ?*libusb.libusb_transfer,
+    device: ?*c.libusb_device_handle,
+    transfer: ?*c.libusb_transfer,
     status: Status = .Pending,
 
-    pub fn init(device: ?*libusb.libusb_device_handle) UsbTransfer {
+    pub fn init(device: ?*c.libusb_device_handle) UsbTransfer {
         return UsbTransfer{
             .device=device,
-            .transfer=libusb.libusb_alloc_transfer(1)
+            .transfer=c.libusb_alloc_transfer(1)
         };
     }
 
     pub fn deinit(self: *UsbTransfer) void {
         if (self.transfer) |transfer| {
-            _ = libusb.libusb_free_transfer(transfer);
+            _ = c.libusb_free_transfer(transfer);
             self.transfer = null;
         }
     }
@@ -121,14 +121,14 @@ const UsbTransfer = struct {
     pub fn submit(self: *UsbTransfer) !void {
         if (self.status != .Filled) return error.UsbTransferNotFilled;
         if (self.transfer) |transfer| {
-            const r = libusb.libusb_submit_transfer(transfer);
+            const r = c.libusb_submit_transfer(transfer);
             self.status = .Submitted;
             switch (r) {
                 0 => return, // OK
-                libusb.LIBUSB_ERROR_NO_DEVICE => return error.UsbDeviceDisconnected,
-                libusb.LIBUSB_ERROR_BUSY => return error.UsbTransferAlreadySubmitted,
-                libusb.LIBUSB_ERROR_NOT_SUPPORTED => return error.UsbTransferFlagsNotSupported,
-                libusb.LIBUSB_ERROR_INVALID_PARAM => return error.UsbTransferParamInvalid,
+                c.LIBUSB_ERROR_NO_DEVICE => return error.UsbDeviceDisconnected,
+                c.LIBUSB_ERROR_BUSY => return error.UsbTransferAlreadySubmitted,
+                c.LIBUSB_ERROR_NOT_SUPPORTED => return error.UsbTransferFlagsNotSupported,
+                c.LIBUSB_ERROR_INVALID_PARAM => return error.UsbTransferParamInvalid,
                 else => return error.UsbTransferError,
             }
         }
@@ -137,7 +137,7 @@ const UsbTransfer = struct {
 
     pub fn cancel(self: *UsbTransfer) !void {
         if (self.transfer) |transfer| {
-            const r = libusb.libusb_cancel_transfer(transfer);
+            const r = c.libusb_cancel_transfer(transfer);
             if (r == 0) {
                 self.status = .Cancelled;
             }
@@ -156,7 +156,7 @@ const UsbTransfer = struct {
     pub fn interrupt(self: *UsbTransfer, endpoint: u8, buf: []u8, timeout: c_uint) !void {
         if (self.transfer) |transfer| {
             if (self.device) |device| {
-                libusb.libusb_fill_interrupt_transfer(
+                c.libusb_fill_interrupt_transfer(
                     transfer,
                     device,
                     endpoint,
@@ -172,7 +172,7 @@ const UsbTransfer = struct {
         return error.UsbTransferInvalid;
     }
 
-    pub fn onTransferComplete(ptr: [*c]libusb.libusb_transfer) callconv(.C) void {
+    pub fn onTransferComplete(ptr: [*c]c.libusb_transfer) callconv(.C) void {
         if (ptr) |transfer| {
             const addr = @ptrToInt(transfer.*.user_data);
             if (@intToPtr(?*UsbTransfer, addr)) |self| {
@@ -195,8 +195,8 @@ const Device = struct {
 
     product: [255:0]u8 = undefined,
     manufacturer: [255:0]u8 = undefined,
-    dev: *libusb.libusb_device = null,
-    handle: ?*libusb.libusb_device_handle = null,
+    dev: *c.libusb_device = null,
+    handle: ?*c.libusb_device_handle = null,
     endpoint_address: ?u8 = null,
 
     status: Member(Status) = Member(Status).of(.Disconnected),
@@ -211,11 +211,11 @@ const Device = struct {
     // ------------------------------------------------------------------------
     // Initialization
     // ------------------------------------------------------------------------
-    pub fn loadProductInfo(self: *Device, desc: *libusb.libusb_device_descriptor) void {
+    pub fn loadProductInfo(self: *Device, desc: *c.libusb_device_descriptor) void {
         if (self.handle) |handle| {
-            _ = libusb.libusb_get_string_descriptor_ascii(
+            _ = c.libusb_get_string_descriptor_ascii(
                 handle, desc.iManufacturer, &self.manufacturer, self.manufacturer.len);
-            _ = libusb.libusb_get_string_descriptor_ascii(
+            _ = c.libusb_get_string_descriptor_ascii(
                 handle, desc.iProduct, &self.product, self.product.len);
         }
     }
@@ -224,20 +224,20 @@ const Device = struct {
         if (self.status.get() != .Disconnected) {
             return true;
         }
-        const r = libusb.libusb_open(self.dev, &self.handle);
+        const r = c.libusb_open(self.dev, &self.handle);
         switch (r) {
             0 => {
                 self.status.set(.Connected);
                 std.log.debug("Opened", .{});
                 if (self.handle) |handle| {
-                    _ = libusb.libusb_set_auto_detach_kernel_driver(handle, 1);
+                    _ = c.libusb_set_auto_detach_kernel_driver(handle, 1);
                     return true;
                 }
                 return false;
             },
-            libusb.LIBUSB_ERROR_NO_MEM => return error.UsbMemError,
-            libusb.LIBUSB_ERROR_ACCESS => return error.UsbAccessError,
-            libusb.LIBUSB_ERROR_NO_DEVICE => return error.UsbDeviceDisconnected,
+            c.LIBUSB_ERROR_NO_MEM => return error.UsbMemError,
+            c.LIBUSB_ERROR_ACCESS => return error.UsbAccessError,
+            c.LIBUSB_ERROR_NO_DEVICE => return error.UsbDeviceDisconnected,
             else => return error.UsbUnknownError,
         }
     }
@@ -248,7 +248,7 @@ const Device = struct {
                 self.release(0) catch {};
             }
             std.log.debug("Close", .{});
-            libusb.libusb_close(handle);
+            c.libusb_close(handle);
             self.handle = null;
         }
         self.status.set(.Disconnected);
@@ -257,7 +257,7 @@ const Device = struct {
     // Claim interface
     pub fn claim(self: *Device, interface: c_int) !void {
         if (self.handle) |handle| {
-            const r = libusb.libusb_claim_interface(handle, interface);
+            const r = c.libusb_claim_interface(handle, interface);
             if (r == 0) {
                 self.status.set(.Idle);
                 std.log.debug("Claimed interface {}", .{interface});
@@ -265,9 +265,9 @@ const Device = struct {
             }
             std.log.warn("Claimed interface error: {}", .{r});
             switch(r) {
-                libusb.LIBUSB_ERROR_NOT_FOUND => return error.UsbInterfaceNotFound,
-                libusb.LIBUSB_ERROR_BUSY => return error.UsbInterfaceInUse,
-                libusb.LIBUSB_ERROR_NO_DEVICE => return error.UsbDeviceDisconnected,
+                c.LIBUSB_ERROR_NOT_FOUND => return error.UsbInterfaceNotFound,
+                c.LIBUSB_ERROR_BUSY => return error.UsbInterfaceInUse,
+                c.LIBUSB_ERROR_NO_DEVICE => return error.UsbDeviceDisconnected,
                 else => return error.UsbUnknownError,
             }
         } else {
@@ -278,13 +278,13 @@ const Device = struct {
     pub fn release(self: *Device, interface: c_int) !void {
         if (self.handle) |handle| {
             std.log.debug("Release interface {}", .{interface});
-            const r = libusb.libusb_release_interface(handle, interface);
+            const r = c.libusb_release_interface(handle, interface);
             switch (r) {
                 0 => {
                     self.status.set(.Connected);
                 },
-                libusb.LIBUSB_ERROR_NOT_FOUND => return error.UsbInterfaceNotClaimed,
-                libusb.LIBUSB_ERROR_NO_DEVICE => return error.UsbDeviceDisconnected,
+                c.LIBUSB_ERROR_NOT_FOUND => return error.UsbInterfaceNotClaimed,
+                c.LIBUSB_ERROR_NO_DEVICE => return error.UsbDeviceDisconnected,
                 else => return error.UsbUnknownError,
             }
         } else {
@@ -293,13 +293,13 @@ const Device = struct {
     }
 
     pub fn findDescriptor(self: *Device) !void {
-        var config: ?*libusb.libusb_config_descriptor = null;
-        const r = libusb.libusb_get_config_descriptor(self.dev, 0, &config);
+        var config: ?*c.libusb_config_descriptor = null;
+        const r = c.libusb_get_config_descriptor(self.dev, 0, &config);
         if (r == 0) {
             if (config) |desc| {
                 const ep = desc.interface[0].altsetting[0].endpoint[0];
                 self.endpoint_address = ep.bEndpointAddress;
-                _ = libusb.libusb_free_config_descriptor(config);
+                _ = c.libusb_free_config_descriptor(config);
                 return;
             }
         }
@@ -315,9 +315,9 @@ const Device = struct {
         if (self.handle) |handle| {
             var len: c_int = undefined;
             const size = @intCast(c_int, command.len);
-            const r = libusb.libusb_interrupt_transfer(
+            const r = c.libusb_interrupt_transfer(
                 handle,
-                libusb.LIBUSB_ENDPOINT_OUT + 2,
+                c.LIBUSB_ENDPOINT_OUT + 2,
                 command.ptr,
                 size,
                 &len,
@@ -358,7 +358,7 @@ const Device = struct {
                 return report;
             } else {
                 var len: c_int = undefined;
-                const r = libusb.libusb_interrupt_transfer(
+                const r = c.libusb_interrupt_transfer(
                     handle,
                     addr,
                     std.mem.asBytes(&report),
@@ -381,7 +381,7 @@ const App = struct {
 
     var instance: ?*App = null;
 
-    devs_ptr: [*c]?*libusb.libusb_device = undefined,
+    devs_ptr: [*c]?*c.libusb_device = undefined,
 
     connected: Member(bool) = Member(bool).of(false),
     scale_value: Member(f32) = Member(f32).of(0),
@@ -417,12 +417,10 @@ const App = struct {
 
         self.value_lbl = zgt.Label(.{
             .text="",
-            .selectable=true,
         });
 
         self.device_lbl = zgt.Label(.{
             .text="",
-            .selectable=true,
         });
 
         self.refresh_btn = zgt.Button(.{
@@ -477,9 +475,9 @@ const App = struct {
         );
         window.resize(320, 320);
         window.setTitle("USB Scale");
-        window.setIcon(&icon);
+        window.setIcon(icon);
         window.setIconName("usb-scale");
-        window.setProgramName("usb-scale");
+        //window.setProgramName("usb-scale");
         window.show();
         self.device.set(self.findDevice());
 
@@ -505,19 +503,19 @@ const App = struct {
         if (self.device.value) |*dev| {
             dev.close();
         }
-        libusb.libusb_free_device_list(self.devs_ptr, 1);
+        c.libusb_free_device_list(self.devs_ptr, 1);
     }
 
     pub fn findDevice(self: *App) ?Device {
-        const n = libusb.libusb_get_device_list(null, &self.devs_ptr);
+        const n = c.libusb_get_device_list(null, &self.devs_ptr);
         std.log.debug("USB device count: {}", .{n});
         if (n <= 0) {
             return null;
         }
         self.last_error = null;
         for (self.devs_ptr[0..@intCast(usize, n)]) |dev| {
-            var desc: libusb.libusb_device_descriptor = undefined;
-            const r = libusb.libusb_get_device_descriptor(dev, &desc);
+            var desc: c.libusb_device_descriptor = undefined;
+            const r = c.libusb_get_device_descriptor(dev, &desc);
             if (r < 0) {
                 std.log.warn("Failed to get device descriptor: {}", .{r});
                 return null;
@@ -664,12 +662,12 @@ const App = struct {
 
 
 pub fn main() anyerror!void {
-    const r = libusb.libusb_init(null);
+    const r = c.libusb_init(null);
     if (r < 0) {
         std.log.err("failed to init usb: {}\n", .{r});
         return;
     }
-    defer libusb.libusb_exit(null);
+    defer c.libusb_exit(null);
     var app = App{};
     defer app.deinit();
     try app.run();
