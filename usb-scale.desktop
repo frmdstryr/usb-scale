@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=USB Scale
+Comment=USB scale reader
+Categories=Office;
+Type=Application
+Terminal=false
+Icon=usb-scale
+Exec=usb-scale

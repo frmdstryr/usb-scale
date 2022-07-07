@@ -1,0 +1,6 @@
+id: jwh034b0atjdcxw2d1wsfujtge18m8i5onm1pve46h5r41pz
+name: zscale
+license: GPLv3
+description: USB Scale UI
+root_dependencies:
+  - src: git https://github.com/zenith391/zgt
